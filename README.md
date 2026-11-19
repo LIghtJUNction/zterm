@@ -8,16 +8,16 @@ and clipboard policy.
 The production library is `no_std` with `alloc` and forbids unsafe code. It uses
 [`zvte`](https://crates.io/crates/zvte) for streaming parsing,
 [`zinput`](https://crates.io/crates/zinput) for input encoding,
-[`zgraphics`](https://crates.io/crates/zgraphics) for static Kitty graphics, and
-[`unicode-width`](https://crates.io/crates/unicode-width) for character widths.
-Default features are disabled on every dependency. Applications must provide an
-allocator; tests and the development benchmark use `std`.
+[`zgraphics`](https://crates.io/crates/zgraphics) for Kitty and Sixel images,
+[`zgpui`](https://crates.io/crates/zgpui) for optional UI scenes, and
+`unicode-width` / `unicode-segmentation` for character widths and cluster boundaries.
+Applications supply the allocator; tests and development examples use `std`.
 
 ## Use independently
 
 ```toml
 [dependencies]
-zterm = "0.2.0"
+zterm = "0.5.0"
 ```
 
 ```rust
@@ -52,9 +52,10 @@ terminal.clear_responses();
 `feed` accepts arbitrary chunk boundaries, including split UTF-8 characters and
 control sequences. `cell` addresses the live screen; `view_cell` addresses the
 same viewport with a scrollback offset. Both return a blank cell for invalid
-coordinates. `resize` clamps dimensions to `1..=1024`, keeps the cursor row
-visible, and marks all rows dirty. Primary-screen rows removed from the top
-while shrinking are retained within the configured scrollback limits.
+coordinates. `resize` clamps dimensions to `1..=1024`, reflows retained primary
+text using recorded soft wraps, and marks all rows dirty. `resize_anchored` also
+maps requested text positions; alternate-screen content remains a fixed grid.
+History stays within the configured row and byte limits.
 
 `Modes::input()` snapshots the negotiated keyboard, mouse, focus, and paste
 modes into the independent `zinput::Modes` value. The input crate is re-exported
@@ -86,8 +87,8 @@ assert!(terminal.row_dirty(0));
 SGR default colors and ANSI palette references follow the new configuration.
 Explicit truecolor and indexed colors 16 through 255 keep their values, even
 when their RGB values happen to equal an old default or palette entry. Color
-provenance occupies existing cell padding and flag bits; `Cell` remains 28 bytes
-and `fg`/`bg` remain resolved RGB values for renderers. The frontend still owns
+provenance is retained alongside resolved `fg`/`bg` values. The 32-byte `Cell`
+also stores an ID for complete grapheme clusters; `cell_chars` reads their content. The frontend still owns
 window padding, cursor colors, and redraw scheduling. OSC 4/10/11 queries report
 the current colors with their original terminator; OSC color writes remain
 unsupported. The SGR defaults and OSC query format follow the
@@ -133,25 +134,27 @@ records without reusing IDs. These are untrusted display markers, not proof
 of command identity or authorization. See the
 [shell setup and acceptance guide](../../shell/README.md).
 
-## Static graphics
+## Graphics
 
-Call `set_cell_size(width, height)` whenever physical text-cell metrics change.
-This supplies the geometry used by image placements and CSI pixel-size replies.
-`graphics_draws(history_offset)` returns an allocation-free iterator over the
-current screen's visible image placements, in z-order. Each item borrows a
-straight-alpha RGBA image and specifies source and destination rectangles.
-The frontend performs scaling, viewport clipping and alpha compositing. Negative
-z-indices are drawn behind text; values below -1,073,741,824 also go behind cells
-with explicit background colors. The graphics types are re-exported as
-`zterm::graphics`.
+Call `set_cell_size(width, height)` when physical text-cell metrics change.
+`graphics_draws(history_offset)` returns the visible image placements in z-order,
+including source, destination and optional clip rectangles. Text-backed placements
+use a bounded geometry cache. The frontend preserves the full source-to-destination
+transform when applying `Draw::clip`, then performs viewport clipping and alpha
+compositing. Negative z-indices are behind text; values below -1,073,741,824 are
+also behind cells with explicit backgrounds. Types are re-exported as `zterm::graphics`.
 
-PTY inline RGB, RGBA and PNG are supported, with optional zlib compression,
-capability queries, chunked transfers, image IDs/numbers, placement IDs, cropping,
-aspect-preserving scaling, z-order and deletion. PNG includes palette, grayscale,
-transparency, 16-bit and Adam7 input. Nonessential metadata is discarded before
-decoding; invalid CRCs, oversized dimensions and decompression-limit failures
-produce protocol errors. Filesystem/shared-memory transports, animation,
-Unicode placeholders and relative placements are not advertised as supported.
+PTY inline RGB, RGBA and PNG support optional zlib compression, chunked transfers,
+image IDs/numbers, placement IDs, source cropping, scaling and deletion. PNG
+accepts palette, grayscale, transparency, 16-bit and Adam7 input. Metadata is
+discarded before decoding; invalid CRCs, oversized dimensions and decompression
+limits produce protocol errors. APNG remains unsupported.
+
+`set_graphics_reader` installs the host's bounded file, temporary-file and
+shared-memory reader. The host validates objects and owns unlink policy.
+`advance_graphics` advances animation from host-supplied monotonic milliseconds
+and returns the next deadline. Unicode placeholders and relative placements
+resolve through the same draw contract. The clock and external I/O remain supplied by the host.
 
 Primary and alternate screens own independent bounded image scenes. Images move
 with full-screen scrolling and remain available within retained history. Resizing
@@ -166,6 +169,19 @@ staging buffer. Larger single-APC transfers emitted by existing `kitten icat`
 versions and unpadded final base64 are accepted without retaining the whole
 encoded body.
 
+## Host clipboard and UI integration
+
+OSC 52 uses a dedicated bounded streaming path and request queue. The host drains
+`next_clipboard_request`, applies its clipboard policy, and checks `clipboard_epoch`
+before completing an asynchronous request. Reset and host cancellation invalidate
+older requests. The public `MAX_CLIPBOARD_BYTES` and `MAX_CLIPBOARD_REQUESTS`
+constants describe this queue independently of ordinary OSC string limits.
+
+UI scenes are re-exported as `zterm::ui`. Hosts opt in with `set_ui_host_enabled`
+after attaching a renderer and event router, then consume `ui_scene` / `ui_revision`.
+`ui_action` checks the expected surface and revision before returning an intent;
+the host applies current session and input-owner authorization.
+
 ## Screen and storage
 
 The visible screen is a flat cell array with a circular row origin. Full-screen
@@ -174,7 +190,7 @@ region moves only its own rows. Dirty bits are tracked per row, including the
 old and new cursor rows.
 
 Scrollback is allocated as output arrives and is limited by both the requested
-line count and an 8 MiB cell-storage budget. Once full, old line buffers are
+line count and an 8 MiB retained-history budget. Once full, old line buffers are
 reused. The alternate screen is created on first use and retained for reuse.
 It does not append to scrollback; the primary screen's existing history is
 preserved while the alternate screen is active.
@@ -184,8 +200,8 @@ Additional bounds are explicit:
 | Storage | Bound |
 | --- | --- |
 | Screen dimensions | 1–1024 columns and 1–1024 rows |
-| Requested history | At most 65,536 lines, subject to the 8 MiB cell budget |
-| OSC parser payload | 4,096 bytes; overflowing commands are rejected |
+| Requested history | At most 65,536 lines, subject to the 8 MiB retained-history budget |
+| Ordinary OSC parser payload | 4,096 bytes; OSC 52 uses its separate bounded streaming queue |
 | Pending protocol responses | 65,536 bytes |
 | Hyperlink identities | 1,024 entries |
 | Hyperlink URI | 2,048 UTF-8 bytes |
@@ -195,15 +211,16 @@ Additional bounds are explicit:
 | Shell command records | 128, allocated lazily |
 | Command-text read | 65,536 UTF-8 bytes |
 | Graphics APC staging | At most a 512-byte header plus 4,096 encoded payload bytes; larger bodies stream through it |
-| Decoded graphics | 16 MiB per image; 32 MiB per screen, counting vector capacity |
+| Decoded graphics | 32 MiB per image and per screen, counting vector capacity |
 | Pending graphics transfer | 16 MiB per screen; one transfer at a time |
 | Graphics dimensions | At most 8,192 pixels in either dimension, also subject to byte limit |
 | Stored images / placements | 128 / 512 per screen |
-| Combining scalars | Two inline scalars per character cell |
+| Complete grapheme content | At most 256 UTF-8 bytes per cluster, 16,384 pooled entries and a combined 1 MiB for text and reference headers |
 
-The history byte limit covers the backing cell vectors. Screen arrays,
-container metadata, parser state, titles, hyperlinks, and queued responses are
-additional bounded allocations. Passing a history limit of zero disables
+The history byte limit includes cell-vector capacity and history-deque metadata.
+Screen arrays, parser state, titles, hyperlinks, queued responses and the bounded
+grapheme pool are separate allocations. Grapheme slot/tree metadata is additional
+to the pool's text/reference-header accounting. Passing a history limit of zero disables
 scrollback allocation.
 Image decoding uses additional bounded temporary storage. Renderer copies and
 buffers retained through `Arc` are outside the model's decoded-storage quota;
@@ -216,8 +233,8 @@ frontends must bound and release those resources separately.
   alternate screen, and DEC line-drawing characters.
 - SGR attributes and 16-color, 256-color, and RGB colors. RGB accepts both
   semicolon and colon parameter forms; cells expose resolved RGB values.
-- UTF-8, double-width characters, and two inline combining scalars. Overwriting,
-  erasing, inserting, deleting, and resizing repair split double-width cells.
+- UTF-8, double-width characters and complete extended grapheme clusters within
+  the storage limits. Editing and resizing repair split double-width cells.
 - OSC titles, working-directory metadata, indexed/default color queries, and
   OSC 8 hyperlinks attached to cells and retained in scrollback. The host
   decides whether to open a URI.
@@ -246,23 +263,33 @@ and [OSC 8 hyperlinks](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9
 
 ## Current boundaries
 
-Resizing preserves the cursor row and crops columns that no longer fit; it
-does not reflow paragraphs or historical lines. A cell holds a base character and
-up to two additional combining scalars. Full grapheme-cluster layout, complex
-emoji ZWJ sequences, bidirectional shaping, Sixel, image animation, and OSC 52
-clipboard operations are outside the current implementation.
+Width changes reflow retained primary-screen soft wraps while preserving hard
+line boundaries and requested `ResizeAnchor` positions. The alternate screen
+keeps a fixed grid. History eviction and addressed content outside the retained
+area remain bounded; lost anchors are reported as absent.
+
+Complete extended grapheme clusters, including emoji ZWJ sequences, are retained
+in bounded shared storage. `cell_chars` and `grapheme` expose the complete content.
+Font shaping and bidirectional layout belong to the renderer. Clipboard requests,
+UI actions and external image reads require host policy and host implementations.
 
 The library changes screen state and returns protocol bytes. It does not
 perform I/O, invoke programs, render text, or open links.
 
 ## Validation and measurements
 
-From the workspace:
+From this standalone workspace:
 
 ```sh
-cargo test -p zterm
-cargo check -p zterm --target x86_64-unknown-none
-cargo run -p zterm --release --example benchmark
+cargo test --locked --lib
+cargo test --locked --doc
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+python3 tools/check_package.py
+cargo package --locked
+rustup target add wasm32-unknown-unknown x86_64-unknown-none
+cargo check --locked --lib --target wasm32-unknown-unknown
+cargo check --locked --lib --target x86_64-unknown-none
 ```
 
 The core tests cover fragmented streams, wide-cell repair, scroll regions,
@@ -283,6 +310,39 @@ MIT. See [LICENSE](LICENSE).
 through `graphics_draws`, alongside Kitty images. DECSDM 80, private/shared
 palette mode 1070 and cursor-right mode 8452 are queryable with DECRQM. Sixel
 input commits only at ST; cancellation drops the partial decoder without moving
-the cursor or publishing pixels. The [graphics protocol scope](../../docs/protocols.md#sixel)
+the cursor or publishing pixels. The [graphics protocol scope](https://github.com/LIghtJUNction/ztty/blob/d0e00923f9502121b5c2ff367d2750b42ccd57da/docs/protocols.md#sixel)
 distinguishes tested decoding/cursor behavior from framebuffer and native-GUI
 compatibility limits.
+
+
+## Repository and module layout
+
+The independent `0.5.0` workspace uses published version dependencies for `zgpui`,
+`zgraphics` and `zinput`. Its initial source was copied from
+[ztty `d0e00923`](https://github.com/LIghtJUNction/ztty/tree/d0e00923f9502121b5c2ff367d2750b42ccd57da/crates/zterm);
+[the extraction record](https://github.com/LIghtJUNction/zterm/blob/main/docs/extraction.json)
+contains the original file blobs. The subsequent split preserves public paths,
+method bodies and the parent data structures.
+
+| Terminal module | Responsibility |
+| --- | --- |
+| `terminal.rs` | Shared state, public types and construction |
+| `framing.rs` | Byte-stream framing, cancellation and extension routing |
+| `dispatch.rs` | VT parser callbacks and bounded replies |
+| `editing.rs` | Cell editing, cursor movement, scrolling and history insertion |
+| `style.rs`, `modes.rs` | Theme/SGR state and terminal mode negotiation |
+| `view.rs` | Visible/retained text access, shell ranges and frontend acknowledgements |
+| `graphics.rs`, `image_cells.rs` | Host image integration and cached placeholder geometry |
+| `reflow.rs`, `grapheme.rs` | Resize mapping and complete-cluster editing |
+
+The manual [candidate workflow](https://github.com/LIghtJUNction/zterm/blob/main/.github/workflows/ci.yml)
+validates one exact commit on Linux, macOS and Windows, with WebAssembly and
+bare-metal checks, formatting, Clippy, package boundaries and isolated release-script
+tests. These checks cover the library; native PTY, renderer, clipboard and display
+integration remain host-level validation.
+
+The separate manual [release workflow](https://github.com/LIghtJUNction/zterm/blob/main/.github/workflows/release.yml)
+prepares or resumes an exact candidate, reruns those gates, checks the crate's
+embedded Git identity and registry checksum, then pushes the matching tag and
+completes its GitHub Release. An interrupted publication resumes only when package
+bytes and the existing tag agree with that candidate.

@@ -1,0 +1,91 @@
+name: Validate zterm release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Exact 40-character candidate commit (empty uses selected revision)
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact candidate commit to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CANDIDATE_SHA: ${{ inputs.ref || github.sha }}
+
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - name: Verify fixed candidate identity
+        shell: bash
+        run: |
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - run: cargo test --locked --lib
+      - run: cargo test --locked --doc
+      - run: python tools/check_package.py
+
+  no-std:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [wasm32-unknown-unknown, x86_64-unknown-none]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - name: Verify fixed candidate identity
+        run: |
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - run: cargo check --locked --lib --target ${{ matrix.target }}
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - name: Verify fixed candidate identity
+        run: |
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: python3 scripts/bump_version.py none
+      - name: Validate release orchestration without publishing
+        run: python3 -m unittest discover -s scripts -p "*_tests.py"
+      - name: Check package contents and fixtures
+        run: python3 tools/check_package.py
+      - run: cargo package --locked

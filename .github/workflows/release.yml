@@ -1,0 +1,138 @@
+name: Release zterm
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version increment (none publishes the current version)
+        required: true
+        default: none
+        type: choice
+        options: [none, patch, minor, major]
+      candidate:
+        description: Full existing candidate SHA to resume; ignores bump
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zterm-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Select version candidate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      candidate: ${{ steps.commit.outputs.candidate }}
+    steps:
+      - name: Require publication credentials and main
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
+            echo "::error::CARGO_REGISTRY_TOKEN is required for crate publication."
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Run this workflow from main."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - name: Select source revision
+        shell: bash
+        env:
+          REQUESTED_CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          if [[ -n "$REQUESTED_CANDIDATE" ]]; then
+            if [[ ! "$REQUESTED_CANDIDATE" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::candidate must be a full lowercase commit SHA."
+              exit 1
+            fi
+            git merge-base --is-ancestor "$REQUESTED_CANDIDATE" origin/main
+            git switch --detach "$REQUESTED_CANDIDATE"
+          else
+            remote_main="$(git ls-remote --exit-code origin refs/heads/main)"
+            test "${remote_main%%$'\t'*}" = "$GITHUB_SHA"
+          fi
+      - name: Prepare version and lockfile
+        id: bump
+        shell: bash
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
+          REQUESTED_CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          if [[ -n "$REQUESTED_CANDIDATE" ]]; then
+            RELEASE_BUMP=none
+          fi
+          python3 scripts/bump_version.py "$RELEASE_BUMP"
+      - name: Record candidate
+        id: commit
+        shell: bash
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          REQUESTED_CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          if ! git diff --quiet -- Cargo.toml Cargo.lock; then
+            test -z "$REQUESTED_CANDIDATE"
+            existing_tag="$(git ls-remote --tags origin "refs/tags/v$VERSION")"
+            if [[ -n "$existing_tag" ]]; then
+              echo "::error::Tag v$VERSION already exists."
+              exit 1
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -- Cargo.toml Cargo.lock
+            git commit -m "release: prepare v$VERSION [skip ci]"
+            git push origin HEAD:refs/heads/main
+          fi
+          candidate="$(git rev-parse HEAD)"
+          if git show-ref --verify --quiet "refs/tags/v$VERSION"; then
+            test "$(git rev-parse "refs/tags/v$VERSION^{}")" = "$candidate"
+          fi
+          test -z "$(git status --porcelain)"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "Candidate $candidate for zterm $VERSION"
+
+  validate:
+    name: Validate candidate
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.candidate }}
+
+  publish:
+    name: Publish tested candidate
+    needs: [prepare, validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      CANDIDATE_SHA: ${{ needs.prepare.outputs.candidate }}
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.candidate }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - name: Verify identity and finish publication
+        run: python3 scripts/publish_release.py
