@@ -40,6 +40,45 @@ class VersionTests(unittest.TestCase):
                 bump.replace_package_version(source, "0.5.1")
 
 
+    def test_version_bump_populates_cache_before_changing_manifest(self):
+        with TemporaryDirectory() as directory, chdir(directory):
+            original = '[package]\nname = "zterm"\nversion = "0.5.0"\n'
+            Path("Cargo.toml").write_text(original)
+            Path("Cargo.lock").write_text('version = 4\n[[package]]\nname = "zterm"\nversion = "0.5.0"\n')
+            calls = []
+
+            def cargo(command, **kwargs):
+                calls.append(command)
+                if command == ["cargo", "fetch", "--locked"]:
+                    self.assertEqual(Path("Cargo.toml").read_text(), original)
+                elif command == ["cargo", "generate-lockfile", "--offline"]:
+                    self.assertEqual(calls[0], ["cargo", "fetch", "--locked"])
+                    Path("Cargo.lock").write_text('version = 4\n[[package]]\nname = "zterm"\nversion = "0.5.1"\n')
+                else:
+                    raise AssertionError(command)
+
+            with patch("sys.argv", ["bump_version.py", "patch"]), \
+                 patch.object(bump.subprocess, "run", side_effect=cargo), \
+                 patch.object(bump.os, "environ", {}), redirect_stdout(io.StringIO()):
+                bump.main()
+            self.assertIn('version = "0.5.1"', Path("Cargo.toml").read_text())
+            self.assertEqual(len(calls), 2)
+
+    def test_fetch_failure_keeps_manifest_and_lockfile_unchanged(self):
+        with TemporaryDirectory() as directory, chdir(directory):
+            original = '[package]\nname = "zterm"\nversion = "0.5.0"\n'
+            lock = 'version = 4\n[[package]]\nname = "zterm"\nversion = "0.5.0"\n'
+            Path("Cargo.toml").write_text(original)
+            Path("Cargo.lock").write_text(lock)
+            failure = bump.subprocess.CalledProcessError(101, ["cargo", "fetch", "--locked"])
+            with patch("sys.argv", ["bump_version.py", "patch"]), \
+                 patch.object(bump.subprocess, "run", side_effect=failure), \
+                 patch.object(bump.os, "environ", {}):
+                with self.assertRaises(bump.subprocess.CalledProcessError):
+                    bump.main()
+            self.assertEqual(Path("Cargo.toml").read_text(), original)
+            self.assertEqual(Path("Cargo.lock").read_text(), lock)
+
 class RegistryTests(unittest.TestCase):
     def test_correct_sparse_index_and_version(self):
         checksum = "a" * 64

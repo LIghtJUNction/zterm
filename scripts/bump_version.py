@@ -55,6 +55,8 @@ def main() -> None:
     if tomllib.loads(updated)["package"]["version"] != version:
         raise ValueError("The updated manifest does not contain the new version")
     if version != package["version"]:
+        # A fresh runner needs the locked registry metadata before offline resolution.
+        subprocess.run(["cargo", "fetch", "--locked"], check=True)
         manifest.write_text(updated, encoding="utf-8")
         subprocess.run(["cargo", "generate-lockfile", "--offline"], check=True)
     lock = tomllib.loads(Path("Cargo.lock").read_text(encoding="utf-8"))
