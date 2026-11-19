@@ -1,0 +1,149 @@
+{
+  "source_repository": "https://github.com/LIghtJUNction/ztty",
+  "source_commit": "d0e00923f9502121b5c2ff367d2750b42ccd57da",
+  "source_path": "crates/zterm",
+  "crate_version": "0.5.0",
+  "checkpoint_scope": "Rust sources, tests, examples, README and LICENSE copied byte-for-byte; Cargo workspace metadata made standalone with version-only published dependencies, anchored package include and local ignores.",
+  "source_files": [
+    {
+      "path": "Cargo.toml",
+      "git_blob": "a8bf8c6a749c5cd4d59b2300025b366d7b52b184",
+      "sha256": "7289707e8fe907cdca2fff9a042535afe598f827205606538c6697c13dc64112"
+    },
+    {
+      "path": "LICENSE",
+      "git_blob": "223dc232aa00af81dcf2c0622ee381b33fd0dc13",
+      "sha256": "97016fcf641f0ebb5c3fb6a0eda2e2bec82aecd443f3acd24a536499d5fa28a4"
+    },
+    {
+      "path": "README.md",
+      "git_blob": "d7bfcdef7cfbadd5bbd0507ab508203214482162",
+      "sha256": "348af1f19fdd2afaaa6d1d98cb4fe0c06851b998006eca69a3cc59f7e4a050f1"
+    },
+    {
+      "path": "examples/benchmark.rs",
+      "git_blob": "5a5f3110f7a7f36f23c06b2909906a16d8b9ea58",
+      "sha256": "8551f815d1ca276154df9f2050a9039f0e9cd225da363137338d3c820ecc3624"
+    },
+    {
+      "path": "examples/scroll_benchmark.rs",
+      "git_blob": "96656799c0701607db63c0266062fd3b7e9ce252",
+      "sha256": "441339f98b5a2051bf7080c5e03431f72c9388a7f2d83b98c4fc9a136c6d1883"
+    },
+    {
+      "path": "examples/shell_probe.rs",
+      "git_blob": "9e3e2aac01a92f5c732159b5b7534532dd98b655",
+      "sha256": "2ff60541fd1c3aa561592339345f9d45333ac0e41ce7ad4388d04362e02d30f4"
+    },
+    {
+      "path": "examples/sixel_probe.rs",
+      "git_blob": "2589f8e87c3784a7802b9300ff450878454e269d",
+      "sha256": "ce3a3f532388dc4302dca510dad2dff3e8e234a07a47746ddf004d2a10ca4b98"
+    },
+    {
+      "path": "src/blink_tests.rs",
+      "git_blob": "89216ec4905ae2321aff0468e48201c63a45c169",
+      "sha256": "fc66930ca50c84bd0f7e21f5f988e9f235fa1935d0db8662b5d76705743ee10b"
+    },
+    {
+      "path": "src/clipboard.rs",
+      "git_blob": "4cd81378308edf90698b557ef0f114842a560a10",
+      "sha256": "8bf611cb5a88d1b8a3ecd51c26b99c711ddb3298fd3abafb9bc99f2e12b9eb23"
+    },
+    {
+      "path": "src/clipboard/tests.rs",
+      "git_blob": "ec1128308f5ee2b32cdb7fc36b022aa20f3aceab",
+      "sha256": "3a4bb345c7697f30355d7b2da202f54df03c883ccdcde48d1e9add5eeea2824e"
+    },
+    {
+      "path": "src/grapheme.rs",
+      "git_blob": "ee564e962a6a386c0934056cce5e547dc30b3ca1",
+      "sha256": "f3bf258339ed14e6c2558dbd082f6ae5906788f6e3808df99fd37fc81e9847c1"
+    },
+    {
+      "path": "src/grapheme_tests.rs",
+      "git_blob": "c6432af91a408908f92091802859e21e6526bdc9",
+      "sha256": "41f82d780701467affb2d96d0c410b2682805b7b9a85007e84070ed38ad32f9f"
+    },
+    {
+      "path": "src/lib.rs",
+      "git_blob": "5c2e08221097d559bd503c9ee11c91226e3c8344",
+      "sha256": "0b6b57e16be46b7f76df5e7183f7ed51644fcac755d4912b6b88f8b8f02c4b15"
+    },
+    {
+      "path": "src/reflow_tests.rs",
+      "git_blob": "b84e2a4c9bfb57ada54b49283e85cce0b3df448c",
+      "sha256": "3706487cf27ecc718f461b55cc3496c81c6d386c8efbc9cb26c3f0b090ebe1f7"
+    },
+    {
+      "path": "src/screen.rs",
+      "git_blob": "dea058cb2880f58a05e4f41ce2708c4cdd716dae",
+      "sha256": "ad42786f802a70159ae1e902f3833741e5d6e7b3fa45fa99274db6d4ce877685"
+    },
+    {
+      "path": "src/shell.rs",
+      "git_blob": "5d4f2dc906e14cf075dfee94d9274cb5ec5071f3",
+      "sha256": "6d36449a8fa943cc748d7d590d2c62aa5cc2284e4cb0f10100e9e3af255706eb"
+    },
+    {
+      "path": "src/shell_tests.rs",
+      "git_blob": "d42eec57f27a8f1ebd44920ae6295cfecf5671b9",
+      "sha256": "583dd2708c4874664ec3d1d7e93cac9aa27da25fdb65bc61878b475ee7bd6c3a"
+    },
+    {
+      "path": "src/sixel_tests.rs",
+      "git_blob": "6946e0aa770ccab3bafa0896858c4dfbd7bc96ff",
+      "sha256": "b550946f42830faf81cc88b6058f743ef3714860711b02d3145b964569cd7ddd"
+    },
+    {
+      "path": "src/terminal.rs",
+      "git_blob": "36f2fb25f584632c5f3c2bcd2642c21236cd21d9",
+      "sha256": "ab1434e8bbbf53d3c58ea853fe1bdc07700cb659ebe5fe09da39545ea06ef018"
+    },
+    {
+      "path": "src/terminal/grapheme.rs",
+      "git_blob": "651853f79cda48dc04e9a6604b7811255a3d4156",
+      "sha256": "d4a09cbbf140a63496d3a5fce432c365c92c88ab8ceff61141ccb37b8da6b40c"
+    },
+    {
+      "path": "src/terminal/image_cell_tests.rs",
+      "git_blob": "5178c210cff32eb51fa0d1aa111c90f5be4bcaa0",
+      "sha256": "ee50600ff81f627f667af1019100e9a6f9eb3cfa25a8672e5ab087aa2aeb3159"
+    },
+    {
+      "path": "src/terminal/image_cells.rs",
+      "git_blob": "400b08beb09648fb3cd761c8d3c43628451688d7",
+      "sha256": "8de76b20b0b10afd70c75bb44c3a3ee0dbc92200a37e74ab77c12de32e388050"
+    },
+    {
+      "path": "src/terminal/image_diacritics.rs",
+      "git_blob": "fd5fd5977ff51ef13d7a96642b26c257de6693bc",
+      "sha256": "851c39c95ec2255a9c3c0a85ff36cde2098032b1c86223f54bc4200b61f980e1"
+    },
+    {
+      "path": "src/terminal/reflow.rs",
+      "git_blob": "1a9034728e5a575a97eadc7b942d34de347a51df",
+      "sha256": "916b8b172fa0f1861e7c7c0605bf4d056d033494c98d3374378c6293f7e6079d"
+    },
+    {
+      "path": "src/tests.rs",
+      "git_blob": "b450aa96be65193e0ff446ac2b0bdb3519df3f54",
+      "sha256": "c34c95db7bbd2b826b746dfad7212909e3cb4f1cb5b0159457b8190ada20b63a"
+    },
+    {
+      "path": "src/theme_tests.rs",
+      "git_blob": "ba91f153ca2d15b3fe60845d6255a4422a5e72ce",
+      "sha256": "f2a68d8312eacfde218dea8d3981532c665aaf92bb81ed5519448a40e0160909"
+    },
+    {
+      "path": "src/ui_tests.rs",
+      "git_blob": "725bced62e2c8edef611988d032d3da1d9da90d0",
+      "sha256": "e76615a73fbd262bcdc5700ff759500f36207828bcd9cb871b63d55b840137b8"
+    },
+    {
+      "path": "src/wrap_tests.rs",
+      "git_blob": "e4082e5f321dfda2b77821ea9d10f0613f085959",
+      "sha256": "ef0f94de52c89ebb8f2f8d10a709879d8dba80dcbea567713f4b647d2a47cf77"
+    }
+  ]
+}
