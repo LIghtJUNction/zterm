@@ -475,3 +475,121 @@ impl State {
             .trim_history(if alternate { self.history.len() } else { 0 });
     }
 }
+
+impl Terminal {
+    /// Resize retained primary text, rejoining only recorded soft wraps.
+    /// A narrower screen can evict history at the existing byte/row limits.
+    /// Addressed content below the cursor is clipped when it cannot fit.
+    pub fn resize(&mut self, cols: usize, rows: usize) {
+        self.resize_anchored(cols, rows, &mut []);
+    }
+
+    /// Resize and remap caller-owned text locations in the active screen.
+    /// Lost or clipped locations become None. Old TextPosition coordinates must
+    /// not be reused across a width change without passing them as anchors.
+    /// Alternate screens retain grid-resize semantics rather than text reflow.
+    pub fn resize_anchored(&mut self, cols: usize, rows: usize, anchors: &mut [ResizeAnchor]) {
+        let (cols, rows) = dimensions(cols, rows);
+        if self.cols() == cols && self.rows() == rows {
+            return;
+        }
+        for anchor in anchors.iter_mut() {
+            anchor.position = anchor.position.filter(|point| {
+                self.retained_row(point.line).is_some_and(|row| {
+                    point.column <= row.len() && (!anchor.cell || point.column < row.len())
+                })
+            });
+        }
+        let last_grapheme = self.state.last_grapheme.map(|(x, y)| *self.cell(x, y));
+        self.text_revision = self.text_revision.wrapping_add(1);
+        if cols != self.cols() {
+            self.state.reflow_primary(cols, rows, anchors);
+            self.resize_tabs(cols);
+            return;
+        }
+        let alternate_drop = self.state.screen.y.saturating_add(1).saturating_sub(rows);
+        if !self.state.modes.alternate_screen {
+            let dropped = self.state.screen.y.saturating_add(1).saturating_sub(rows);
+            for row in 0..dropped {
+                self.state.record_history_row(row);
+            }
+            self.state.graphics.scroll(
+                0,
+                self.state.screen.rows - 1,
+                -(dropped as i32),
+                self.state.history.len(),
+                true,
+            );
+        } else {
+            let dropped = self.state.screen.y.saturating_add(1).saturating_sub(rows);
+            self.state
+                .graphics
+                .scroll(0, self.state.screen.rows - 1, -(dropped as i32), 0, false);
+        }
+        self.state.screen.resize(cols, rows);
+        if let Some(primary) = self.state.primary.as_mut() {
+            let dropped = primary.y.saturating_add(1).saturating_sub(rows);
+            for row in 0..dropped {
+                self.state.line_base = self.state.line_base.saturating_add(1);
+                push_history(
+                    &mut self.state.history,
+                    self.state.history_limit,
+                    &mut self.state.history_bytes,
+                    primary.row(row),
+                    primary.row_wrap(row),
+                );
+            }
+            self.state.inactive_graphics.scroll(
+                0,
+                primary.rows - 1,
+                -(dropped as i32),
+                self.state.history.len(),
+                true,
+            );
+            primary.resize(cols, rows);
+        }
+        if let Some(alternate) = self.state.inactive_alternate.as_mut() {
+            let dropped = alternate.y.saturating_add(1).saturating_sub(rows);
+            self.state
+                .inactive_graphics
+                .scroll(0, alternate.rows - 1, -(dropped as i32), 0, false);
+            alternate.resize(cols, rows);
+        }
+        self.state
+            .graphics
+            .set_viewport(self.state.cell_width, self.state.cell_height, rows);
+        self.state.inactive_graphics.set_viewport(
+            self.state.cell_width,
+            self.state.cell_height,
+            rows,
+        );
+        self.state.graphics.trim_history(self.state.history.len());
+        self.state.last_grapheme = self
+            .state
+            .previous_cell()
+            .filter(|(x, y)| last_grapheme == Some(*self.cell(*x, *y)));
+        for anchor in anchors {
+            anchor.position = anchor.position.and_then(|mut point| {
+                if self.state.modes.alternate_screen {
+                    point.line = point.line.checked_sub(alternate_drop as u64)?;
+                }
+                self.retained_row(point.line)
+                    .filter(|row| {
+                        point.column <= row.len() && (!anchor.cell || point.column < row.len())
+                    })
+                    .map(|_| point)
+            });
+        }
+        self.resize_tabs(cols);
+    }
+
+    pub(super) fn resize_tabs(&mut self, cols: usize) {
+        let previous_cols = self.state.tabs.len();
+        self.state.tabs.resize(cols, false);
+        for (x, tab) in self.state.tabs.iter_mut().enumerate().skip(previous_cols) {
+            if x % 8 == 0 {
+                *tab = true;
+            }
+        }
+    }
+}
