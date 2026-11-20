@@ -1,4 +1,4 @@
-use super::appended_scalar_extends;
+use super::{appended_scalar_extends, confirmed_append_boundary};
 use crate::Terminal;
 use alloc::string::{String, ToString};
 use unicode_segmentation::UnicodeSegmentation;
@@ -8,6 +8,13 @@ fn assert_oracle(prefix: &str, scalar: char) {
     assert!(prefix.is_empty() || prefix.graphemes(true).count() == 1);
     let mut text = prefix.to_string();
     text.push(scalar);
+    if confirmed_append_boundary(prefix, scalar) {
+        assert_ne!(
+            text.graphemes(true).count(),
+            1,
+            "chunked boundary split one cluster: prefix={prefix:?}, scalar={scalar:?}"
+        );
+    }
     assert_eq!(
         appended_scalar_extends(&text, prefix.len()),
         text.graphemes(true).count() == 1,
@@ -157,5 +164,53 @@ fn exact_cluster_budget_keeps_text_then_uses_existing_overflow_replacement() {
         );
         terminal.feed(b"X");
         assert_eq!(terminal.cell(1, 0).ch, 'X');
+    }
+}
+
+#[test]
+fn chunked_boundary_handles_scalar_and_retained_prefixes_without_false_splits() {
+    assert!(!confirmed_append_boundary("", 'a'));
+    for (prefix, scalar) in [
+        ("终", '端'),
+        ("é", 'X'),
+        ("e\u{301}", '终'),
+        ("🇦🇧", '🇨'),
+        ("👩\u{301}‍💻", 'X'),
+    ] {
+        assert_oracle(prefix, scalar);
+        assert!(confirmed_append_boundary(prefix, scalar));
+        let text = alloc::format!("{prefix}{scalar}");
+        for split in 0..=text.len() {
+            let mut terminal = Terminal::new(16, 2, 8);
+            terminal.feed(&text.as_bytes()[..split]);
+            terminal.feed(&text.as_bytes()[split..]);
+            assert_eq!(
+                terminal.cell_chars(terminal.cell(0, 0)).collect::<String>(),
+                prefix
+            );
+            let column = prefix.width().clamp(1, 2);
+            assert_eq!(terminal.cell(column, 0).ch, scalar);
+            assert_eq!(terminal.cursor(), (column + scalar.to_string().width(), 0));
+        }
+    }
+}
+
+#[test]
+fn full_cluster_budget_accepts_a_new_boundary_without_overflow() {
+    for base in ["e", "é"] {
+        let prefix =
+            base.to_string() + &"\u{301}".repeat((crate::MAX_GRAPHEME_BYTES - base.len()) / 2);
+        for scalar in ['X', '终', '👩'] {
+            assert!(confirmed_append_boundary(&prefix, scalar));
+            assert_oracle(&prefix, scalar);
+            let mut terminal = Terminal::new(8, 2, 8);
+            terminal.feed(prefix.as_bytes());
+            terminal.feed(scalar.encode_utf8(&mut [0; 4]).as_bytes());
+            assert_eq!(
+                terminal.cell_chars(terminal.cell(0, 0)).collect::<String>(),
+                prefix
+            );
+            assert_eq!(terminal.cell(1, 0).ch, scalar);
+        }
     }
 }

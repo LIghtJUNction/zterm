@@ -1,5 +1,5 @@
 use super::*;
-use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
+use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation};
 use unicode_width::UnicodeWidthStr;
 
 // Every retained prefix is already one complete extended grapheme cluster.
@@ -11,6 +11,32 @@ fn appended_scalar_extends(text: &str, appended_at: usize) -> bool {
             // Full context should be sufficient; preserve the published
             // segmentation behavior if the dependency requests more context.
             .unwrap_or_else(|_| text.graphemes(true).count() != 1)
+}
+
+// Only an established boundary can skip the complete-string path. A retained
+// prefix is valid UTF-8; borrowing it avoids rebuilding unrelated clusters.
+fn confirmed_append_boundary(prefix: &str, scalar: char) -> bool {
+    if prefix.is_empty() {
+        return false;
+    }
+    let mut encoded = [0; 4];
+    let suffix = scalar.encode_utf8(&mut encoded);
+    let mut cursor = GraphemeCursor::new(prefix.len(), prefix.len() + suffix.len(), true);
+    let mut context_end = prefix.len().saturating_add(1);
+    for _ in 0..3 {
+        match cursor.is_boundary(suffix, prefix.len()) {
+            Ok(boundary) => return boundary,
+            Err(GraphemeIncomplete::PreContext(end)) if end > 0 && end < context_end => {
+                let Some(context) = prefix.get(..end) else {
+                    return false;
+                };
+                cursor.provide_context(context, 0);
+                context_end = end;
+            }
+            _ => return false,
+        }
+    }
+    false
 }
 
 impl State {
@@ -103,6 +129,17 @@ impl State {
             return UnicodeWidthChar::width(ch) == Some(0);
         }
         if old.ch.is_ascii() && ch.is_ascii() {
+            return false;
+        }
+        let mut inline_prefix = [0; 4];
+        let prefix = if let Some(text) = self.graphemes.get(old.grapheme_id) {
+            Some(text)
+        } else if old.width != 0 && old.ch != '\0' && old.combining == ['\0'; 2] {
+            Some(&*old.ch.encode_utf8(&mut inline_prefix))
+        } else {
+            None
+        };
+        if prefix.is_some_and(|text| confirmed_append_boundary(text, ch)) {
             return false;
         }
         let mut buffer = [0u8; crate::MAX_GRAPHEME_BYTES + 4];
