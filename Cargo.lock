@@ -45,7 +45,7 @@ checksum = "d854f1abbf3a1b2fe2ce8ac2e9ac9ccf05452e6561cf8e8fc70f9f252c0914bd"
 
 [[package]]
 name = "zterm"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "unicode-segmentation",
  "unicode-width",
