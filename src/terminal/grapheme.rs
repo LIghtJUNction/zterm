@@ -1,6 +1,17 @@
 use super::*;
-use unicode_segmentation::UnicodeSegmentation;
+use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 use unicode_width::UnicodeWidthStr;
+
+// Every retained prefix is already one complete extended grapheme cluster.
+// Appending one scalar can only add a boundary at its starting byte offset.
+fn appended_scalar_extends(text: &str, appended_at: usize) -> bool {
+    appended_at == 0
+        || !GraphemeCursor::new(appended_at, text.len(), true)
+            .is_boundary(text, 0)
+            // Full context should be sufficient; preserve the published
+            // segmentation behavior if the dependency requests more context.
+            .unwrap_or_else(|_| text.graphemes(true).count() != 1)
+}
 
 impl State {
     pub(super) fn previous_cell(&self) -> Option<(usize, usize)> {
@@ -106,7 +117,7 @@ impl State {
             length += bytes;
         }
         let text = core::str::from_utf8(&buffer[..length]).expect("encoded scalar sequence");
-        if text.graphemes(true).count() != 1 {
+        if !appended_scalar_extends(text, length - ch.len_utf8()) {
             return false;
         }
         if text.len() > crate::MAX_GRAPHEME_BYTES {
@@ -212,3 +223,6 @@ mod tests {
         assert_eq!(terminal.state.graphemes.get(alternate), Some("🇺🇳"));
     }
 }
+
+#[cfg(test)]
+mod append_boundary_tests;
