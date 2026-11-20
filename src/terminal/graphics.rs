@@ -32,10 +32,10 @@ impl Terminal {
 }
 
 impl State {
-    pub(super) fn graphics_command(&mut self, body: &[u8]) {
+    pub(super) fn erase_graphics(&mut self) {
         let previous = self.graphics.revision();
         let context = self.graphics_context();
-        let outcome = self.graphics.command(body, context, &mut self.responses);
+        let outcome = self.graphics.erase_visible(context, &mut self.responses);
         self.graphics_result(previous, outcome);
     }
 

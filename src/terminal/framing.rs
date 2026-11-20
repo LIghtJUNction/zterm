@@ -262,9 +262,6 @@ impl Terminal {
                 _ => 3,
             };
         }
-        if matches!(self.apc_route, 1 | 2) {
-            self.state.checkpoint_extensions_seen = true;
-        }
         match self.apc_route {
             1 => {
                 let context = self.state.graphics_context();

@@ -123,24 +123,227 @@ fn split_utf8_csi_and_osc_are_rejected_without_resetting_the_parser() {
 }
 
 #[test]
-fn extension_protocol_and_pending_clipboard_work_are_never_silently_lost() {
+fn completed_graphics_and_ui_probes_keep_replies_and_allow_checkpoint() {
+    for host_enabled in [false, true] {
+        for probe in [
+            b"\x1b_Ga=q,i=31,f=32,s=1,v=1;AAAA/w==\x1b\\".as_slice(),
+            b"\x1b_Ga=q,i=31,e=T,f=32,U=1,C=1\x1b\\",
+            b"\x1b_ZUI;1;{\"v\":1,\"op\":\"capabilities\"}\x1b\\",
+        ] {
+            let mut terminal = Terminal::new(16, 3, 8);
+            terminal.set_ui_host_enabled(host_enabled);
+            terminal.feed(b"ordinary shell\r\n");
+            terminal.feed(probe);
+            assert!(!terminal.responses().is_empty());
+            let mut restored = roundtrip(&terminal);
+            assert_eq!(restored.responses(), terminal.responses());
+            assert_eq!(restored.ui_revision(), 0);
+            for suffix in [probe, b"\x1b[?1049h\x1b[?1049l", b"\x1bcplain text"] {
+                terminal.feed(suffix);
+                restored.feed(suffix);
+                assert_eq!(
+                    terminal.checkpoint().unwrap(),
+                    restored.checkpoint().unwrap()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn fragmented_probe_frames_are_rejected_until_their_real_terminator() {
+    for probe in [
+        b"\x1b_Ga=q,i=31,f=32,s=1,v=1;AAAA/w==\x1b\\".as_slice(),
+        b"\x1b_Ga=q,i=31,e=T\x1b\\",
+        b"\x1b_ZUI;1;{\"v\":1,\"op\":\"capabilities\"}\x1b\\",
+    ] {
+        for split in 1..probe.len() {
+            let mut terminal = Terminal::new(16, 3, 8);
+            terminal.set_ui_host_enabled(true);
+            terminal.feed(&probe[..split]);
+            assert!(terminal.checkpoint().unwrap_err().contains("pending input"));
+            terminal.feed(&probe[split..]);
+            assert!(!terminal.responses().is_empty());
+            roundtrip(&terminal);
+        }
+    }
+}
+
+#[test]
+fn zero_byte_query_transfer_is_not_lost_at_a_complete_apc_boundary() {
+    let mut terminal = Terminal::new(16, 3, 8);
+    terminal.feed(b"\x1b_Ga=q,i=31,f=32,s=1,v=1,m=1;\x1b\\");
+    assert!(terminal.parser.is_ground());
+    assert_eq!(terminal.framing, 0);
+    assert_eq!(terminal.graphics().pending_bytes(), 0);
+    assert!(!terminal.graphics().is_query_only());
+    assert!(
+        terminal
+            .checkpoint()
+            .unwrap_err()
+            .contains("pending graphics")
+    );
+    assert!(terminal.responses().is_empty());
+
+    terminal.feed(b"\x1b_Ga=q,i=32,e=T\x1b\\");
+    assert_eq!(terminal.responses(), b"\x1b_Gi=32,e=T;OK\x1b\\");
+    assert!(
+        terminal
+            .checkpoint()
+            .unwrap_err()
+            .contains("pending graphics")
+    );
+    terminal.feed(b"\x1b_Gm=0;AAAA/w==\x1b\\");
+    assert!(terminal.responses().ends_with(b"\x1b_Gi=31;OK\x1b\\"));
+    assert!(terminal.graphics().is_query_only());
+    roundtrip(&terminal);
+}
+
+#[test]
+fn cancelled_queries_and_ignored_ui_frames_leave_no_protocol_identity() {
+    for cancel in [0x18, 0x1a] {
+        let mut terminal = Terminal::new(16, 3, 8);
+        terminal.feed(b"\x1b_Ga=q,i=31,f=32,s=1,v=1;AAAA");
+        assert!(terminal.checkpoint().is_err());
+        terminal.feed(&[cancel]);
+        assert!(terminal.graphics().is_query_only());
+        roundtrip(&terminal);
+    }
+    for host_enabled in [false, true] {
+        let mut terminal = Terminal::new(16, 3, 8);
+        terminal.set_ui_host_enabled(host_enabled);
+        for ignored in [
+            b"\x1b_ZUI;1;{\"v\":1,\"type\":\"capabilities\"}\x1b\\".as_slice(),
+            b"\x1b_ZUI;2;unsupported\x1b\\",
+            b"\x1b_ZUI;1;{\"v\":1,\"op\":\"replace\",\"surface\":0,\"rev\":1}\x1b\\",
+        ] {
+            terminal.feed(ignored);
+            assert!(terminal.ui_scene().is_none());
+            assert_eq!(terminal.ui_revision(), 0);
+            roundtrip(&terminal);
+        }
+    }
+}
+
+#[test]
+fn stateful_graphics_are_never_silently_lost_or_forgotten_after_reset() {
     for input in [
         b"\x1b_Ga=t,f=32,s=1,v=1,m=1;\x1b\\".as_slice(),
         b"\x1b_Ga=T,f=32,s=1,v=1;AAAA/w==\x1b\\",
-        b"\x1b_ZUI;1;{\"v\":1,\"type\":\"capabilities\"}\x1b\\",
         b"\x1bPq~\x1b\\",
     ] {
         let mut terminal = Terminal::new(16, 3, 8);
         terminal.feed(input);
+        let before = (
+            terminal.graphics().image_count(),
+            terminal.graphics().pending_bytes(),
+        );
+        assert!(terminal.checkpoint().unwrap_err().contains("graphics"));
+        assert_eq!(
+            (
+                terminal.graphics().image_count(),
+                terminal.graphics().pending_bytes()
+            ),
+            before
+        );
+        terminal.feed(b"\x1bcplain text");
         assert!(
             terminal
                 .checkpoint()
                 .unwrap_err()
-                .contains("graphics or native UI")
+                .contains("non-query graphics")
         );
-        terminal.feed(b"\x1bcplain text");
-        assert!(terminal.checkpoint().is_err());
+        terminal.feed(b"\x1b_Ga=q,i=31,e=T\x1b\\");
+        assert!(
+            terminal
+                .checkpoint()
+                .unwrap_err()
+                .contains("non-query graphics")
+        );
     }
+}
+
+#[test]
+fn inactive_and_deleted_images_do_not_become_query_only() {
+    let mut terminal = Terminal::new(16, 3, 8);
+    terminal.feed(b"\x1b_Ga=T,i=31,f=32,s=1,v=1;AAAA/w==\x1b\\");
+    assert_eq!(terminal.graphics().image_count(), 1);
+    terminal.feed(b"\x1b[?1049h");
+    assert_eq!(terminal.graphics().image_count(), 0);
+    assert_eq!(terminal.state.inactive_graphics.image_count(), 1);
+    assert!(
+        terminal
+            .checkpoint()
+            .unwrap_err()
+            .contains("graphics resources")
+    );
+    terminal.feed(b"\x1b[?1049l\x1b_Ga=d,d=A\x1b\\");
+    assert_eq!(terminal.graphics().image_count(), 0);
+    assert!(
+        terminal
+            .checkpoint()
+            .unwrap_err()
+            .contains("non-query graphics")
+    );
+}
+
+fn native_scene(revision: u64) -> Vec<u8> {
+    alloc::format!(
+        "\x1b_ZUI;1;{{\"v\":1,\"op\":\"replace\",\"surface\":9,\"rev\":{revision},\"root\":1,\"events\":true,\"nodes\":[{{\"id\":1,\"type\":\"button\",\"label\":\"Run\",\"action\":\"run\"}}]}}\x1b\\"
+    ).into_bytes()
+}
+
+#[test]
+fn native_ui_clear_keeps_revision_floor_and_event_identity_guarded() {
+    let mut terminal = Terminal::new(16, 3, 8);
+    terminal.set_ui_host_enabled(true);
+    terminal.feed(&native_scene(1));
+    assert_eq!(terminal.ui_action(1, 9, 1).unwrap().event_id, 1);
+    assert!(
+        terminal
+            .checkpoint()
+            .unwrap_err()
+            .contains("native UI resources")
+    );
+    assert_eq!(terminal.ui_scene().unwrap().revision, 1);
+    terminal.feed(
+        b"\x1b_ZUI;1;{\"v\":1,\"op\":\"clear\",\"surface\":9,\"rev\":2,\"base_rev\":1}\x1b\\",
+    );
+    assert!(terminal.ui_scene().is_none());
+    assert!(
+        terminal
+            .checkpoint()
+            .unwrap_err()
+            .contains("native UI protocol identity")
+    );
+    terminal.feed(&native_scene(1));
+    assert!(
+        terminal.ui_scene().is_none(),
+        "old revision must remain rejected"
+    );
+    terminal.feed(&native_scene(3));
+    assert_eq!(terminal.ui_action(1, 9, 3).unwrap().event_id, 2);
+    terminal.feed(b"\x1bcplain text");
+    assert!(terminal.ui_scene().is_none());
+    assert!(
+        terminal
+            .checkpoint()
+            .unwrap_err()
+            .contains("native UI protocol identity")
+    );
+}
+
+#[test]
+fn unsupported_ui_host_ignores_scenes_without_acquiring_protocol_identity() {
+    let mut terminal = Terminal::new(16, 3, 8);
+    terminal.feed(&native_scene(1));
+    assert!(terminal.ui_scene().is_none());
+    assert_eq!(terminal.ui_revision(), 0);
+    roundtrip(&terminal);
+}
+
+#[test]
+fn pending_clipboard_work_is_never_silently_lost() {
     let mut terminal = Terminal::new(16, 3, 8);
     terminal.feed(b"\x1b]52;c;?\x07");
     assert!(terminal.checkpoint().unwrap_err().contains("OSC 52"));
