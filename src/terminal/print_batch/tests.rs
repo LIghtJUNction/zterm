@@ -160,11 +160,11 @@ fn same(a: &Terminal, b: &Terminal) {
     assert_eq!(left.graphics.revision(), right.graphics.revision());
     let draws = |t: &Terminal| {
         t.graphics_draws(0)
-            .map(|d| {
+            .map(|draw| {
                 (
-                    d.image_id,
-                    d.placement_id,
-                    d.clip.map(|c| (c.x, c.y, c.width, c.height)),
+                    draw.image_id,
+                    draw.placement_id,
+                    format!("{:?}", draw.geometry()),
                 )
             })
             .collect::<Vec<_>>()
@@ -345,9 +345,20 @@ fn exhausted_grapheme_pool_and_collection_threshold_keep_scalar_behavior() {
             }
         }
         assert!(exhausted);
+        terminal.state.grapheme_collect_after = 4096;
     }
-    feed(&mut a, &mut b, "e\u{301}中文".as_bytes());
-    let source = "中".repeat(4100) + "e\u{301}尾部";
-    feed(&mut a, &mut b, source.as_bytes());
+    feed(&mut a, &mut b, b"e");
+    feed(&mut a, &mut b, "\u{301}\u{308}\u{327}".as_bytes());
+    assert_eq!(a.cell(0, 0).ch, '\u{fffd}');
+    assert!(a.state.grapheme_overflow);
+    assert_eq!(a.state.grapheme_collect_after, 4096);
+
+    feed(&mut a, &mut b, "中".repeat(4100).as_bytes());
+    assert!(a.state.grapheme_writes >= a.state.grapheme_collect_after);
+    feed(&mut a, &mut b, "\x1b[He\u{301}尾部".as_bytes());
+    assert_eq!(a.cell_chars(a.cell(0, 0)).collect::<String>(), "e\u{301}");
+    assert!(!a.state.grapheme_overflow);
+    assert!(a.state.grapheme_collect_after > 4096);
+    assert!(a.state.grapheme_collect_after > a.state.grapheme_writes);
     feed(&mut a, &mut b, b"\x1b[2b\x1b[6n");
 }
