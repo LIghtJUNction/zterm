@@ -624,13 +624,12 @@ impl Terminal {
     /// checksum, not native memory. This does not mutate the terminal. A partial
     /// parser sequence must finish before retrying; image, native UI or pending
     /// clipboard resources currently return an error instead of losing state.
+    /// Completed stateless capability probes are supported; queued responses
+    /// are retained. Stateful extension history remains unsupported after clear.
     pub fn checkpoint(&self) -> Result<Vec<u8>> {
         let s = &self.state;
         if !self.parser.is_ground() || self.framing != 0 {
             return Err("terminal parser has pending input; retry after a complete sequence");
-        }
-        if s.checkpoint_extensions_seen {
-            return Err("terminal graphics or native UI protocol state cannot be restored yet");
         }
         if s.graphics.image_count() != 0
             || s.graphics.placement_count() != 0
@@ -646,6 +645,19 @@ impl Terminal {
         }
         if s.ui.scene().is_some() {
             return Err("terminal native UI resources do not support checkpoint restoration yet");
+        }
+        if !s.graphics.is_query_only() || !s.inactive_graphics.is_query_only() {
+            return Err(
+                "terminal has pending graphics work or non-query graphics protocol history; checkpoint restoration is unsupported",
+            );
+        }
+        // Successful scene operations retain revision/event identities even
+        // after clear, RIS or a screen switch. Capability probes and rejected
+        // frames do not change these counters; their replies are stored below.
+        if s.ui.last_revision() != 0 || s.ui.revision() != 0 {
+            return Err(
+                "terminal native UI protocol identity cannot be restored yet, even after its scene is cleared",
+            );
         }
         if !s.clipboard.is_empty() || self.clipboard_frame.is_some() {
             return Err("terminal has pending OSC 52 clipboard work; retry after it completes");
@@ -928,7 +940,6 @@ impl Terminal {
                 ui: zgpui::State::new(),
                 cell_width,
                 cell_height,
-                checkpoint_extensions_seen: false,
             },
             framing: 0,
             apc: zgraphics::CommandStream::new(),
@@ -943,5 +954,7 @@ impl Terminal {
     }
 }
 
+#[cfg(test)]
+mod host_erase_tests;
 #[cfg(test)]
 mod tests;

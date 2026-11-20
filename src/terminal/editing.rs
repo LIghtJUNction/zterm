@@ -373,7 +373,7 @@ impl State {
                     self.shell.invalidate_screen(self.line_base);
                 }
                 self.screen.clear(blank);
-                self.graphics_command(b"Ga=d");
+                self.erase_graphics();
             }
             3 => {
                 self.history.clear();
