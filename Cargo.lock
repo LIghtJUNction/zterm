@@ -22,9 +22,9 @@ checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
 name = "zgpui"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9943673fb607eade54661ff65243c4441a537f75188e361160a97344570bff90"
+checksum = "0c5cddf5d0ed86ccb9cf21e035585146cf5aff0e316301bc037684b3c51b1046"
 
 [[package]]
 name = "zgraphics"
