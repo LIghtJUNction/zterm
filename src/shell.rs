@@ -53,7 +53,7 @@ pub enum ShellPhase {
 pub(crate) struct ShellIntegration {
     pub(crate) records: VecDeque<CommandRecord>,
     pub(crate) phase: ShellPhase,
-    next_id: u64,
+    pub(crate) next_id: u64,
 }
 
 impl ShellIntegration {

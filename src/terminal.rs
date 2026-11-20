@@ -10,6 +10,7 @@ use zvte::{Params, Parser, Perform};
 
 use crate::screen::*;
 
+mod checkpoint;
 mod dispatch;
 mod editing;
 mod framing;
@@ -168,6 +169,7 @@ struct State {
     ui: zgpui::State,
     cell_width: u32,
     cell_height: u32,
+    checkpoint_extensions_seen: bool,
 }
 
 impl State {
@@ -219,6 +221,7 @@ impl State {
             ui: zgpui::State::new(),
             cell_width: 8,
             cell_height: 16,
+            checkpoint_extensions_seen: false,
         }
     }
 }

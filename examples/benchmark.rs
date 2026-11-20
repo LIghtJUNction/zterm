@@ -85,6 +85,38 @@ fn latency(data: &[u8]) -> (u128, u128, u128, usize) {
 fn main() {
     let ascii = b"The quick brown fox jumps over the lazy dog. 0123456789 terminal throughput.\r\n"
         .repeat(32);
+    if std::env::args().nth(1).as_deref() == Some("--ascii-only") {
+        let history = match std::env::args().nth(2).as_deref() {
+            None | Some("0") => 0,
+            Some("2048") => 2048,
+            _ => {
+                eprintln!("usage: benchmark --ascii-only [0|2048]");
+                std::process::exit(2);
+            }
+        };
+        if std::env::args().nth(3).is_some() {
+            eprintln!("usage: benchmark --ascii-only [0|2048]");
+            std::process::exit(2);
+        }
+        // Reuse the unchanged workload, warmup, sample count and allocator.
+        // perf stat covers all 32,768 feeds, including the 4,096 warmup feeds.
+        let (mib_s, allocations) = throughput(&ascii, history);
+        let total_feed_bytes = ascii.len() * 4096 * 8;
+        println!("{{");
+        println!("  \"schema\": 1,");
+        println!("  \"scope\": \"ASCII parser plus screen; fixed feed work for perf stat\",");
+        println!("  \"geometry\": [120, 32],");
+        println!("  \"history_limit\": {history},");
+        println!("  \"input_bytes\": {},", ascii.len());
+        println!("  \"warmup_feeds\": 4096,");
+        println!("  \"samples\": 7,");
+        println!("  \"feeds_per_sample\": 4096,");
+        println!("  \"total_feed_bytes_including_warmup\": {total_feed_bytes},");
+        println!("  \"median_mib_s\": {mib_s:.3},");
+        println!("  \"steady_state_allocations\": {allocations}");
+        println!("}}");
+        return;
+    }
     let sgr = b"\x1b[38;2;99;179;237mProject Z\x1b[0m \x1b[1;32mready\x1b[0m \x1b[48;5;24m background \x1b[0m\r\n".repeat(32);
     let unicode = "终端响应 · Ελληνικά · 日本語 · e\u{301} · 안녕하세요\r\n"
         .as_bytes()

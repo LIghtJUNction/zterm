@@ -39,6 +39,19 @@ fn confirmed_append_boundary(prefix: &str, scalar: char) -> bool {
     false
 }
 
+// A scalar-only cell needs no chunk negotiation: both UTF-8 scalars fit in
+// eight bytes. Retain the same Unicode boundary oracle, including contextual
+// rules, while supplying its complete two-scalar input in one call.
+fn confirmed_scalar_boundary(before: char, after: char) -> bool {
+    let mut buffer = [0u8; 8];
+    let boundary = before.encode_utf8(&mut buffer).len();
+    let length = boundary + after.encode_utf8(&mut buffer[boundary..]).len();
+    let text = core::str::from_utf8(&buffer[..length]).expect("encoded scalar pair");
+    GraphemeCursor::new(boundary, length, true)
+        .is_boundary(text, 0)
+        .unwrap_or(false)
+}
+
 impl State {
     pub(super) fn previous_cell(&self) -> Option<(usize, usize)> {
         if self.screen.x == 0 && !self.screen.wrap {
@@ -131,15 +144,20 @@ impl State {
         if old.ch.is_ascii() && ch.is_ascii() {
             return false;
         }
-        let mut inline_prefix = [0; 4];
-        let prefix = if let Some(text) = self.graphemes.get(old.grapheme_id) {
-            Some(text)
+        let boundary = if let Some(text) = self.graphemes.get(old.grapheme_id) {
+            confirmed_append_boundary(text, ch)
         } else if old.width != 0 && old.ch != '\0' && old.combining == ['\0'; 2] {
-            Some(&*old.ch.encode_utf8(&mut inline_prefix))
+            if let Some(boundary) = self.graphemes.cached_scalar_boundary(old.ch, ch) {
+                boundary
+            } else {
+                let boundary = confirmed_scalar_boundary(old.ch, ch);
+                self.graphemes.cache_scalar_boundary(old.ch, ch, boundary);
+                boundary
+            }
         } else {
-            None
+            false
         };
-        if prefix.is_some_and(|text| confirmed_append_boundary(text, ch)) {
+        if boundary {
             return false;
         }
         let mut buffer = [0u8; crate::MAX_GRAPHEME_BYTES + 4];

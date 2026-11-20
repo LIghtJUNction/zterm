@@ -9,15 +9,112 @@ const MAX_ENTRIES: usize = 16_384;
 const MAX_TEXT_BYTES: usize = 1024 * 1024;
 const ARC_HEADER: usize = 2 * core::mem::size_of::<usize>();
 
+// A scalar occupies at most 21 bits. The full ordered pair remains in each
+// entry: collisions can evict a result, never substitute another pair's rule.
+const SCALAR_PAIR_KEY: u64 = (1 << 42) - 1;
+const SCALAR_PAIR_BOUNDARY: u64 = 1 << 62;
+const SCALAR_PAIR_VALID: u64 = 1 << 63;
+
+struct ScalarBoundaryCache([u64; 64]);
+
+impl Default for ScalarBoundaryCache {
+    fn default() -> Self {
+        Self([0; 64])
+    }
+}
+
+impl ScalarBoundaryCache {
+    fn key(before: char, after: char) -> u64 {
+        ((before as u64) << 21) | after as u64
+    }
+
+    fn slot(key: u64) -> usize {
+        (key.wrapping_mul(0x9e3779b97f4a7c15) >> 58) as usize
+    }
+
+    fn get(&self, before: char, after: char) -> Option<bool> {
+        let key = Self::key(before, after);
+        let entry = self.0[Self::slot(key)];
+        if entry & SCALAR_PAIR_VALID != 0 && entry & SCALAR_PAIR_KEY == key {
+            Some(entry & SCALAR_PAIR_BOUNDARY != 0)
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, before: char, after: char, boundary: bool) {
+        let key = Self::key(before, after);
+        self.0[Self::slot(key)] =
+            key | SCALAR_PAIR_VALID | if boundary { SCALAR_PAIR_BOUNDARY } else { 0 };
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Graphemes {
     slots: Vec<Option<Arc<str>>>,
     free: Vec<u32>,
     index: BTreeMap<Arc<str>, u32>,
     bytes: usize,
+    scalar_boundaries: ScalarBoundaryCache,
 }
 
 impl Graphemes {
+    pub(crate) fn cached_scalar_boundary(&self, before: char, after: char) -> Option<bool> {
+        self.scalar_boundaries.get(before, after)
+    }
+
+    pub(crate) fn cache_scalar_boundary(&mut self, before: char, after: char, boundary: bool) {
+        self.scalar_boundaries.insert(before, after, boundary);
+    }
+
+    pub(crate) fn checkpoint_parts(&self) -> (&[Option<Arc<str>>], &[u32]) {
+        (&self.slots, &self.free)
+    }
+
+    pub(crate) fn restore_checkpoint_parts(
+        slots: Vec<Option<Arc<str>>>,
+        free: Vec<u32>,
+    ) -> Option<Self> {
+        if slots.len() > MAX_ENTRIES {
+            return None;
+        }
+        let mut index = BTreeMap::new();
+        let mut bytes = 0usize;
+        let mut vacant = vec![false; slots.len()];
+        for (position, text) in slots.iter().enumerate() {
+            if let Some(text) = text {
+                if text.is_empty() || text.len() > MAX_GRAPHEME_BYTES {
+                    return None;
+                }
+                bytes = bytes.checked_add(text.len() + ARC_HEADER)?;
+                if bytes > MAX_TEXT_BYTES
+                    || index.insert(text.clone(), position as u32 + 1).is_some()
+                {
+                    return None;
+                }
+            } else {
+                vacant[position] = true;
+            }
+        }
+        for &position in &free {
+            let entry = vacant.get_mut(position as usize)?;
+            if !*entry {
+                return None;
+            }
+            *entry = false;
+        }
+        if vacant.iter().any(|value| *value) {
+            return None;
+        }
+        Some(Self {
+            slots,
+            free,
+            index,
+            bytes,
+            scalar_boundaries: ScalarBoundaryCache::default(),
+        })
+    }
+
     pub(crate) fn get(&self, id: u32) -> Option<&str> {
         id.checked_sub(1)
             .and_then(|index| self.slots.get(index as usize))
@@ -142,5 +239,43 @@ mod tests {
         assert_eq!(pool.bytes, 0);
         assert!(pool.index.is_empty());
         assert!(pool.intern("👨‍👩‍👧‍👦").is_some());
+    }
+
+    #[test]
+    fn scalar_cache_stores_zero_keys_and_both_results_exactly() {
+        let mut cache = ScalarBoundaryCache::default();
+        assert_eq!(core::mem::size_of::<ScalarBoundaryCache>(), 512);
+        assert_eq!(cache.get('\0', '\0'), None);
+        cache.insert('\0', '\0', false);
+        assert_eq!(cache.get('\0', '\0'), Some(false));
+        cache.insert('\0', '\0', true);
+        assert_eq!(cache.get('\0', '\0'), Some(true));
+        cache.insert('\u{10ffff}', '\u{10ffff}', false);
+        assert_eq!(cache.get('\u{10ffff}', '\u{10ffff}'), Some(false));
+        assert_eq!(cache.get('\u{10fffe}', '\u{10ffff}'), None);
+    }
+
+    #[test]
+    fn scalar_cache_all_misses_and_collisions_never_reuse_another_pair() {
+        let before = '界';
+        let target = ScalarBoundaryCache::slot(ScalarBoundaryCache::key(before, '\0'));
+        let colliding: Vec<char> = (0..=0x10ffff)
+            .filter_map(char::from_u32)
+            .filter(|after| {
+                ScalarBoundaryCache::slot(ScalarBoundaryCache::key(before, *after)) == target
+            })
+            .take(128)
+            .collect();
+        assert_eq!(colliding.len(), 128);
+        let mut cache = ScalarBoundaryCache::default();
+        for (index, &after) in colliding.iter().enumerate() {
+            assert_eq!(cache.get(before, after), None);
+            let boundary = index % 2 == 0;
+            cache.insert(before, after, boundary);
+            assert_eq!(cache.get(before, after), Some(boundary));
+            for &previous in &colliding[..index] {
+                assert_eq!(cache.get(before, previous), None);
+            }
+        }
     }
 }

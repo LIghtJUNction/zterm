@@ -120,7 +120,9 @@ impl Perform for State {
                     self.sync_commit_pending || self.modes.synchronized_output;
                 let mut clipboard = mem::take(&mut self.clipboard);
                 clipboard.cancel();
+                let checkpoint_extensions_seen = self.checkpoint_extensions_seen;
                 *self = Self::new(cols, rows, history, self.theme);
+                self.checkpoint_extensions_seen = checkpoint_extensions_seen;
                 self.clipboard = clipboard;
                 self.sync_commit_pending = sync_commit_pending;
                 self.shell = shell;
@@ -450,6 +452,7 @@ impl Perform for State {
             && params.iter().count() <= 3
             && params.iter().all(|group| group.len() == 1);
         if self.sixel_active {
+            self.checkpoint_extensions_seen = true;
             let aspect = params
                 .iter()
                 .next()

@@ -70,6 +70,10 @@ pub(crate) struct Queue {
     pub epoch: u64,
 }
 impl Queue {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
     pub fn cancel(&mut self) {
         self.pending.clear();
         self.bytes = 0;

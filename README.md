@@ -182,6 +182,39 @@ after attaching a renderer and event router, then consume `ui_scene` / `ui_revis
 `ui_action` checks the expected surface and revision before returning an intent;
 the host applies current session and input-owner authorization.
 
+## Terminal checkpoints
+
+`Terminal::checkpoint() -> Result<Vec<u8>, &'static str>` encodes retained
+terminal state for a host-controlled process replacement.
+`Terminal::restore_checkpoint(&[u8]) -> Result<Terminal, &'static str>` constructs
+an independent terminal for validation and restoration. The checkpoint includes
+primary and alternate screens, scrollback, cursors, styles, modes, tab stops,
+grapheme identities, shell markers and queued protocol replies.
+
+Checkpointing requires a complete parser boundary. Partial UTF-8, ESC, CSI, OSC
+or DCS input returns an error without changing the original terminal. A host can
+continue normal input processing and retry with a bounded deadline; it must
+keep the original session if no safe boundary arrives. Pending OSC 52 work must
+also finish through the host's normal clipboard handling. Terminals that have
+processed Kitty graphics, Sixel or native UI input are conservatively rejected,
+even after deleting resources or resetting the screen.
+
+The current internal format has version 1, explicit little-endian fields,
+bounded lengths and a corruption checksum, with a 128 MiB limit per terminal.
+Decoding rejects unknown versions, malformed data and invalid state references.
+Compatibility across builds depends on the replacement decoder accepting the
+format and state; validate every checkpoint in the replacement before giving
+up the running host. This format is intended for controlled handover rather
+than a stable archival interchange.
+
+The host retains ownership of PTYs, child processes, pending I/O, windows and
+session layout. After a successful export, stop advancing that terminal until
+handover completes. Reinstall process-local callbacks such as
+`set_graphics_reader` and mark restored rows dirty for a newly created renderer.
+Derived caches are rebuilt. Restoration preserves every retained history row
+while rebuilding bounded storage; allocator capacities are not part of the
+format.
+
 ## Screen and storage
 
 The visible screen is a flat cell array with a circular row origin. Full-screen
@@ -334,6 +367,7 @@ method bodies and the parent data structures.
 | `view.rs` | Visible/retained text access, shell ranges and frontend acknowledgements |
 | `graphics.rs`, `image_cells.rs` | Host image integration and cached placeholder geometry |
 | `reflow.rs`, `grapheme.rs` | Resize mapping and complete-cluster editing |
+| `checkpoint.rs` | Versioned terminal-state encoding, validation and restoration |
 
 The manual [candidate workflow](https://github.com/LIghtJUNction/zterm/blob/main/.github/workflows/ci.yml)
 validates one exact commit on Linux, macOS and Windows, with WebAssembly and
