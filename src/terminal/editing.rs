@@ -211,6 +211,10 @@ impl State {
         if width == 0 {
             return;
         }
+        self.write_char(ch, width);
+    }
+
+    pub(super) fn write_char(&mut self, mut ch: char, width: usize) {
         if self.screen.wrap && self.autowrap {
             self.soft_wrap(self.screen.cols);
         }

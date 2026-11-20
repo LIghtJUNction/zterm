@@ -4,6 +4,15 @@ use super::*;
 impl Terminal {
     /// Consume arbitrary PTY chunks, preserving partial UTF-8 and sequences.
     pub fn feed(&mut self, bytes: &[u8]) {
+        self.feed_impl::<true>(bytes);
+    }
+
+    #[cfg(test)]
+    pub(super) fn feed_scalar_reference(&mut self, bytes: &[u8]) {
+        self.feed_impl::<false>(bytes);
+    }
+
+    fn feed_impl<const BATCH: bool>(&mut self, bytes: &[u8]) {
         if !bytes.is_empty() {
             self.text_revision = self.text_revision.wrapping_add(1);
         }
@@ -30,12 +39,10 @@ impl Terminal {
                         // First deliver ESC: zvte must cancel/dispatch an older
                         // OSC or DCS before the APC dispatcher takes ownership.
                         if remaining[start + 1] == b'_' {
-                            self.parser
-                                .advance(&remaining[..start + 1], &mut self.state);
+                            self.advance::<BATCH>(&remaining[..start + 1]);
                             self.begin_apc();
                         } else {
-                            self.parser
-                                .advance(&remaining[..start + 2], &mut self.state);
+                            self.advance::<BATCH>(&remaining[..start + 2]);
                             if remaining[start + 1] == b']' {
                                 self.osc_probe = 0;
                                 self.framing = 7;
@@ -45,7 +52,7 @@ impl Terminal {
                         }
                         offset += start + 2;
                     } else {
-                        self.parser.advance(remaining, &mut self.state);
+                        self.advance::<BATCH>(remaining);
                         self.framing = u8::from(remaining.last() == Some(&0x1b));
                         offset = bytes.len();
                     }
@@ -56,14 +63,14 @@ impl Terminal {
                     if byte == b'_' {
                         self.begin_apc();
                     } else if byte == b']' {
-                        self.parser.advance(&[byte], &mut self.state);
+                        self.advance::<BATCH>(&[byte]);
                         self.osc_probe = 0;
                         self.framing = 7;
                     } else if byte == b'P' {
-                        self.parser.advance(&[byte], &mut self.state);
+                        self.advance::<BATCH>(&[byte]);
                         self.framing = 4;
                     } else {
-                        self.parser.advance(&[byte], &mut self.state);
+                        self.advance::<BATCH>(&[byte]);
                         self.framing = u8::from(byte == 0x1b);
                     }
                 }
@@ -101,7 +108,7 @@ impl Terminal {
                         // A new ESC sequence cancels an unterminated APC. The
                         // current byte is processed again as an ESC continuation.
                         self.abort_apc();
-                        self.parser.advance(b"\x1b", &mut self.state);
+                        self.advance::<BATCH>(b"\x1b");
                         self.framing = 1;
                     }
                 }
@@ -109,7 +116,7 @@ impl Terminal {
                     // DCS headers are short, bounded by zvte's parameter array.
                     let byte = bytes[offset];
                     offset += 1;
-                    self.parser.advance(&[byte], &mut self.state);
+                    self.advance::<BATCH>(&[byte]);
                     self.framing = match byte {
                         0x1b => 1,
                         0x18 | 0x1a | 0x9c => 0,
@@ -142,7 +149,7 @@ impl Terminal {
                         self.framing = 6;
                     } else {
                         self.state.sixel_complete = byte == 0x9c;
-                        self.parser.advance(&[byte], &mut self.state);
+                        self.advance::<BATCH>(&[byte]);
                         self.state.sixel_complete = false;
                         self.framing = 0;
                     }
@@ -151,11 +158,11 @@ impl Terminal {
                     if bytes[offset] == b'\\' {
                         offset += 1;
                         self.state.sixel_complete = true;
-                        self.parser.advance(b"\x1b\\", &mut self.state);
+                        self.advance::<BATCH>(b"\x1b\\");
                         self.state.sixel_complete = false;
                         self.framing = 0;
                     } else {
-                        self.parser.advance(b"\x1b", &mut self.state);
+                        self.advance::<BATCH>(b"\x1b");
                         self.framing = 1;
                     }
                 }
@@ -175,9 +182,8 @@ impl Terminal {
                             self.framing = 8;
                         }
                     } else {
-                        self.parser
-                            .advance(&prefix[..usize::from(self.osc_probe)], &mut self.state);
-                        self.parser.advance(&[byte], &mut self.state);
+                        self.advance::<BATCH>(&prefix[..usize::from(self.osc_probe)]);
+                        self.advance::<BATCH>(&[byte]);
                         self.framing = u8::from(byte == 0x1b);
                     }
                 }
@@ -222,7 +228,7 @@ impl Terminal {
                         self.framing = 0;
                     } else {
                         self.clipboard_frame = None;
-                        self.parser.advance(b"\x1b", &mut self.state);
+                        self.advance::<BATCH>(b"\x1b");
                         self.framing = 1;
                     }
                 }

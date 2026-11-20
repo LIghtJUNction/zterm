@@ -17,6 +17,7 @@ mod grapheme;
 mod graphics;
 mod image_cells;
 mod modes;
+mod print_batch;
 mod reflow;
 mod style;
 mod view;
