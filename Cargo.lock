@@ -28,7 +28,7 @@ source = "git+https://github.com/LIghtJUNction/zgpui.git#b4d5493e0cd985d00558c7b
 [[package]]
 name = "zgraphics"
 version = "0.2.0"
-source = "git+https://github.com/LIghtJUNction/zgraphics.git#b296a58f09d6052f13c86dc09e9e7b7f7e87438f"
+source = "git+https://github.com/LIghtJUNction/zgraphics.git#aa0ed19fb706ad147aff1df54c4ef762d918e864"
 dependencies = [
  "zune-core",
  "zune-inflate",
