@@ -23,14 +23,12 @@ checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 [[package]]
 name = "zgpui"
 version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a5597b9018e724bcab318e8e52de11f70e1686262692d32d84b1fce30044300"
+source = "git+https://github.com/LIghtJUNction/zgpui.git#b4d5493e0cd985d00558c7be0b5726965ab5163a"
 
 [[package]]
 name = "zgraphics"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc775cfedeae7a0563bb11e51e25b32e9d4a72757fb2935221ab7bc6f2c88e54"
+source = "git+https://github.com/LIghtJUNction/zgraphics.git#b296a58f09d6052f13c86dc09e9e7b7f7e87438f"
 dependencies = [
  "zune-core",
  "zune-inflate",
@@ -40,8 +38,7 @@ dependencies = [
 [[package]]
 name = "zinput"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d854f1abbf3a1b2fe2ce8ac2e9ac9ccf05452e6561cf8e8fc70f9f252c0914bd"
+source = "git+https://github.com/LIghtJUNction/zinput.git#fe1cbaec744fa790a043383d45f612b8d19dcd32"
 
 [[package]]
 name = "zterm"
@@ -83,5 +80,4 @@ dependencies = [
 [[package]]
 name = "zvte"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da3b5c86b41814fe9361fe1a6af454c909933ce8aa8e7fdba3a3aa9e364e2602"
+source = "git+https://github.com/LIghtJUNction/zvte.git#b4e50a5cde476fb5303060f3ecbc9200ccea5cc0"
