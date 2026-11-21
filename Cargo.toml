@@ -13,10 +13,10 @@ keywords = ["terminal", "no-std", "vt", "ansi", "screen"]
 categories = ["no-std", "command-line-interface", "parsing"]
 
 [dependencies]
-zgpui = { version = "0.1.5", default-features = false, git = "https://github.com/LIghtJUNction/zgpui.git"}
-zgraphics = { version = "0.2.0", default-features = false, git = "https://github.com/LIghtJUNction/zgraphics.git"}
-zinput = { version = "0.1.3", default-features = false, git = "https://github.com/LIghtJUNction/zinput.git"}
-zvte = { version = "=0.1.3", default-features = false, git = "https://github.com/LIghtJUNction/zvte.git"}
+zgpui = { default-features = false, git = "https://github.com/LIghtJUNction/zgpui.git"}
+zgraphics = { default-features = false, git = "https://github.com/LIghtJUNction/zgraphics.git"}
+zinput = { default-features = false, git = "https://github.com/LIghtJUNction/zinput.git"}
+zvte = { default-features = false, git = "https://github.com/LIghtJUNction/zvte.git"}
 unicode-width = { version = "=0.2.3", default-features = false }
 unicode-segmentation = { version = "=1.13.3", default-features = false }
 
