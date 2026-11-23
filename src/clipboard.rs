@@ -32,29 +32,16 @@ impl ClipboardRequest {
         } else {
             self.selectors[0]
         };
-        let mut bytes = Vec::with_capacity(9 + text.len().div_ceil(3) * 4);
+        let encoded = z64::encoded_len(text.len(), z64::Mode::Standard)
+            .expect("bounded clipboard text has a representable encoded length");
+        let mut bytes = Vec::with_capacity(9 + encoded);
         bytes.extend_from_slice(b"\x1b]52;");
         bytes.push(selector);
         bytes.push(b';');
-        const ALPHABET: &[u8; 64] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        for group in text.chunks(3) {
-            let a = group[0];
-            let b = group.get(1).copied().unwrap_or(0);
-            let c = group.get(2).copied().unwrap_or(0);
-            bytes.push(ALPHABET[usize::from(a >> 2)]);
-            bytes.push(ALPHABET[usize::from((a & 3) << 4 | b >> 4)]);
-            bytes.push(if group.len() > 1 {
-                ALPHABET[usize::from((b & 15) << 2 | c >> 6)]
-            } else {
-                b'='
-            });
-            bytes.push(if group.len() > 2 {
-                ALPHABET[usize::from(c & 63)]
-            } else {
-                b'='
-            });
-        }
+        let start = bytes.len();
+        bytes.resize(start + encoded, 0);
+        z64::encode(text, &mut bytes[start..], z64::Mode::Standard)
+            .expect("exact clipboard encoding capacity");
         if self.bell_terminated {
             bytes.push(7);
         } else {
@@ -176,16 +163,6 @@ enum DecodeError {
     Invalid,
     Limit,
 }
-fn digit(byte: u8) -> Option<u8> {
-    match byte {
-        b'A'..=b'Z' => Some(byte - b'A'),
-        b'a'..=b'z' => Some(byte - b'a' + 26),
-        b'0'..=b'9' => Some(byte - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    }
-}
 fn decode(bytes: &[u8]) -> Result<Vec<u8>, DecodeError> {
     if bytes.len() > MAX_CLIPBOARD_BYTES.div_ceil(3) * 4 {
         return Err(DecodeError::Limit);
@@ -195,38 +172,18 @@ fn decode(bytes: &[u8]) -> Result<Vec<u8>, DecodeError> {
     }
     let padding = usize::from(bytes.last() == Some(&b'='))
         + usize::from(bytes.len() > 1 && bytes.get(bytes.len() - 2) == Some(&b'='));
-    let size = (bytes.len() / 4 * 3).saturating_sub(padding);
+    let size = z64::decoded_capacity(bytes.len())
+        .expect("bounded clipboard encoding has a representable decoded length")
+        .saturating_sub(padding);
+    // An overlimit request must be ignored even if its content is also invalid.
+    // Invalid Base64 within the limit instead requests a clipboard clear.
     if size > MAX_CLIPBOARD_BYTES {
         return Err(DecodeError::Limit);
     }
-    let mut out = Vec::with_capacity(size);
-    for (i, group) in bytes.as_chunks::<4>().0.iter().enumerate() {
-        let a = digit(group[0]).ok_or(DecodeError::Invalid)?;
-        let b = digit(group[1]).ok_or(DecodeError::Invalid)?;
-        let last = i + 1 == bytes.len() / 4;
-        let c = if group[2] == b'=' && last {
-            0
-        } else {
-            digit(group[2]).ok_or(DecodeError::Invalid)?
-        };
-        let d = if group[3] == b'=' && last {
-            0
-        } else {
-            digit(group[3]).ok_or(DecodeError::Invalid)?
-        };
-        if group[2] == b'=' && (group[3] != b'=' || b & 15 != 0)
-            || group[3] == b'=' && group[2] != b'=' && c & 3 != 0
-        {
-            return Err(DecodeError::Invalid);
-        }
-        out.push(a << 2 | b >> 4);
-        if group[2] != b'=' {
-            out.push(b << 4 | c >> 2);
-        }
-        if group[3] != b'=' {
-            out.push(c << 6 | d);
-        }
-    }
+    let mut out = alloc::vec![0; size];
+    let written =
+        z64::decode(bytes, &mut out, z64::Mode::Standard).map_err(|_| DecodeError::Invalid)?;
+    out.truncate(written);
     Ok(out)
 }
 

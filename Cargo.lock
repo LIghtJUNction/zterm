@@ -21,6 +21,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
+name = "z64"
+version = "0.1.2"
+source = "git+https://github.com/LIghtJUNction/z64.git#7e9cff67beae2c484f8b9749b83ae24a1d0e1bbd"
+
+[[package]]
 name = "zgpui"
 version = "0.1.8"
 source = "git+https://github.com/LIghtJUNction/zgpui.git#d34c41f79ddab343e7468c5192885a82ca487687"
@@ -46,6 +51,7 @@ version = "0.5.2"
 dependencies = [
  "unicode-segmentation",
  "unicode-width",
+ "z64",
  "zgpui",
  "zgraphics",
  "zinput",

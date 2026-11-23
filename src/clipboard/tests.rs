@@ -86,6 +86,44 @@ fn invalid_base64_clears_but_invalid_utf8_or_nul_is_rejected() {
     );
 }
 #[test]
+fn noncanonical_base64_keeps_the_invalid_payload_clear_policy() {
+    for invalid in [
+        b"Zg".as_slice(),
+        b"Zg=",
+        b"Zh==",
+        b"Zm9=",
+        b"Zg==AAAA",
+        b"AA=A",
+        b"====",
+        b"-w==",
+        b"_w==",
+        b"Zg =",
+        b"Zg==\n",
+    ] {
+        let mut queue = Queue::default();
+        let mut body = b"c;".to_vec();
+        body.extend_from_slice(invalid);
+        queue.receive(&body, false);
+        assert_eq!(
+            queue.pop().unwrap().text.as_deref(),
+            Some(""),
+            "{invalid:?}"
+        );
+    }
+}
+#[test]
+fn decoded_size_limits_keep_precedence_over_invalid_content() {
+    let maximum = MAX_CLIPBOARD_BYTES.div_ceil(3) * 4;
+    let mut encoded = vec![b'!'; maximum];
+    assert!(matches!(decode(&encoded), Err(DecodeError::Limit)));
+    encoded[maximum - 2..].copy_from_slice(b"==");
+    assert!(matches!(decode(&encoded), Err(DecodeError::Invalid)));
+    encoded.pop();
+    assert!(matches!(decode(&encoded), Err(DecodeError::Invalid)));
+    encoded.extend_from_slice(b"!!");
+    assert!(matches!(decode(&encoded), Err(DecodeError::Limit)));
+}
+#[test]
 fn queue_bounds_count_and_aggregate_decoded_bytes() {
     let mut q = Queue::default();
     for _ in 0..MAX_CLIPBOARD_REQUESTS + 3 {
@@ -159,6 +197,11 @@ fn selector_order_defaults_and_deduplication_are_bounded() {
         ("Zm9vYmFy", "foobar"),
     ] {
         q.receive(format!("c;{raw}").as_bytes(), false);
-        assert_eq!(q.pop().unwrap().text.as_deref(), Some(expected));
+        let request = q.pop().unwrap();
+        assert_eq!(request.text.as_deref(), Some(expected));
+        assert_eq!(
+            request.reply(b'c', Some(expected.as_bytes())),
+            format!("\x1b]52;c;{raw}\x1b\\").as_bytes()
+        );
     }
 }

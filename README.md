@@ -9,7 +9,8 @@ The production library is `no_std` with `alloc` and forbids unsafe code. It uses
 [`zvte`](https://crates.io/crates/zvte) for streaming parsing,
 [`zinput`](https://crates.io/crates/zinput) for input encoding,
 [`zgraphics`](https://crates.io/crates/zgraphics) for Kitty and Sixel images,
-[`zgpui`](https://crates.io/crates/zgpui) for optional UI scenes, and
+[`zgpui`](https://crates.io/crates/zgpui) for optional UI scenes,
+[`z64`](https://github.com/LIghtJUNction/z64) for standard Base64 clipboard payloads, and
 `unicode-width` / `unicode-segmentation` for character widths and cluster boundaries.
 Applications supply the allocator; tests and development examples use `std`.
 

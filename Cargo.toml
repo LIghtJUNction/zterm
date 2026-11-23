@@ -13,6 +13,7 @@ keywords = ["terminal", "no-std", "vt", "ansi", "screen"]
 categories = ["no-std", "command-line-interface", "parsing"]
 
 [dependencies]
+z64 = { default-features = false, git = "https://github.com/LIghtJUNction/z64.git" }
 zgpui = { default-features = false, git = "https://github.com/LIghtJUNction/zgpui.git"}
 zgraphics = { default-features = false, git = "https://github.com/LIghtJUNction/zgraphics.git"}
 zinput = { default-features = false, git = "https://github.com/LIghtJUNction/zinput.git"}
